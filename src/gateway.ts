@@ -209,11 +209,14 @@ export async function startGateway(
   } finally {
     client.removeListener('message', onMessage);
     await Promise.allSettled(inFlight);
-    browserAbort.abort();
-    await initialization;
-    await pairing;
     try {
+      if (!client.pupBrowser) {
+        browserAbort.abort();
+        await initialization;
+      }
       await client.destroy();
+      await initialization;
+      await pairing;
     } catch {
       console.error('Browser WhatsApp tidak dapat ditutup dengan bersih.');
       failure ??= new Error('Penutupan browser gagal');
