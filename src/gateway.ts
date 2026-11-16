@@ -94,6 +94,7 @@ export async function startGateway(
   });
   const queue = settings.pairingMode ? undefined : queueModule.createQueue(settings.redis);
   const allowedGroupIds = new Set(settings.allowedGroupIds);
+  const sessionKey = settings.sessionKey;
   const inFlight = new Set<Promise<string | void>>();
   const stopped = Promise.withResolvers<void>();
   let stopping = false;
@@ -117,7 +118,7 @@ export async function startGateway(
     if (stopping || queue === undefined) {
       return;
     }
-    const incoming = toIncomingMessage(message, settings.sessionKey, allowedGroupIds, new Date().toISOString());
+    const incoming = toIncomingMessage(message, sessionKey, allowedGroupIds, new Date().toISOString());
     if (incoming === null) {
       return;
     }

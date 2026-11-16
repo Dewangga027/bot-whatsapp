@@ -15,6 +15,7 @@ Peta ini menjelaskan tempat mengubah aturan dan hubungan antarfile, bukan salina
 | `src/migrate.ts` | `runMigrations`, role/grant, versi SQL, transaksi/advisory lock | `db/migrations/`, image yang membawa SQL, tes privilege |
 | `src/gateway.ts` | `toIncomingMessage`, `startGateway`, WhatsApp lifecycle dan pairing | Allowlist/config, gateway Dockerfile, tes adapter, uji host nyata |
 | `src/whatsapp-web-interface-controller.d.cts` | Deklarasi CommonJS controller yang belum disertakan whatsapp-web.js1.34.8; `@types/node-fetch`2.6.13 melengkapi tipe node-fetch2.7.0 | `.d.cts` dimasukkan eksplisit di tsconfig agar `export =` tetap CommonJS dalam proyek ESM. Saat pin WhatsApp berubah, cocokkan constructor/metode dengan `src/util/InterfaceController.js` upstream dan hapus deklarasi lokal bila upstream sudah menyediakannya; tetap periksa library dengan strict |
+| `src/puppeteer-launch-options.d.ts` | Melengkapi interface opsi launch yang masih dirujuk deklarasi whatsapp-web.js 1.34.8 menggunakan `LaunchOptions` asli Puppeteer 24.38.0; `@types/redis-errors` 1.2.3 melengkapi tipe error ioredis | Tidak mengubah runtime/vendor dan tidak mematikan pemeriksaan library. Saat dependency diperbarui, cocokkan ulang deklarasi dan hapus pelengkap bila upstream sudah memperbaikinya |
 | `src/api.ts` | `createApi`, auth/query/projection, health, board, listen/shutdown | Header dashboard, adapter Node-RED, tes API |
 | `src/ops.ts` | `retryFailedJob`; CLI `retry <job-id>` dan pemeriksaan native failed | Tes retry/reconciliation, prosedur operator |
 
@@ -91,6 +92,8 @@ Nilai belum valid memakai null, bukan0. Raw, job ID, native state, serta alasan 
 Import entrypoint tidak menyalakan layanan. `--help` diproses sebelum config/koneksi. CLI produksi memakai `import.meta.main`; konfigurasi runtime tetap diperlukan saat benar-benar menjalankan layanan.
 
 Queue gateway/API memakai `enableOfflineQueue=false`, `maxRetriesPerRequest=1`. `createQueue` tidak menunggu jaringan; `skipWaitingForReady` dan `skipVersionCheck` menghindari startup INFO yang merusak koneksi fail-fast. Karena itu `queue.waitUntilReady()` bukan bukti client Redis siap. Pemilik explicit queue yang perlu operasi pertama segera harus menunggu event client `ready`/`error` secara terbatas. Default lazy enqueue dan CLI retry sudah menangani initial wait maksimal5s; itu bukan retry add.
+
+`ChecklistQueue.redisClient` menunjuk instance ioredis asli yang sudah dimiliki factory, bukan koneksi tambahan. Gunakan untuk PING, command ioredis, dan `node:events.once`; `queue.client` adalah adapter `IRedisClient` BullMQ dengan kontrak yang lebih sempit. Penutupan keduanya tetap melalui `queue.close()`, bukan menutup raw client sendiri saat queue masih dipakai.
 
 Worker memakai koneksi Redis tersendiri `maxRetriesPerRequest=null`, concurrency1, lockDuration30000, stalledInterval30000, maxStalledCount1. Queue attempts1 dan retensi completed/failed tetap; tidak ada QueueScheduler atau cleanup job otomatis.
 

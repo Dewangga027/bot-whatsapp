@@ -47,10 +47,12 @@ Sebelum pairing atau menjalankan profile `whatsapp`, penanggung jawab harus meni
 
 | Sumber | Entri paket selain root | Cakupan |
 | --- | --- | --- |
-| `package-lock.json` | 365 | Termasuk dev dan paket opsional lintas platform; bukan jumlah paket dalam image Linux |
+| `package-lock.json` | 366 | Termasuk dev dan paket opsional lintas platform; bukan jumlah paket dalam image Linux |
 | `nodered/package-lock.json` | 177 | Dependency Dashboard2 tambahan; tidak mencakup semua paket Node-RED/base image |
 
 Mayoritas deklarasi adalah MIT/Apache/BSD/ISC; ada juga BlueOak-1.0.0, Python-2.0, 0BSD dan Unlicense. Satu deklarasi copyleft pada lockfile root adalah `node-webpmux` 3.2.1. Tidak ada deklarasi AGPL/SSPL di kedua lockfile tersebut, tetapi Redis dan browser berada di luar cakupan ini. Deklarasi metadata bukan bukti bahwa seluruh file, WASM, binary, dan kode vendored memakai lisensi yang sama.
+
+Perbaikan deklarasi build menambahkan dev dependency `@types/redis-errors` 1.2.3 berlisensi MIT. Pin runtime Redis, Puppeteer, dan WhatsApp tidak berubah.
 
 Dua entri root tidak memiliki field `license`. Pemeriksaan teks paket menyelesaikan celah metadata tersebut, bukan mengubah lockfile:
 

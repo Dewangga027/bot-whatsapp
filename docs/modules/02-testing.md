@@ -55,6 +55,21 @@ npm run build
 
 Bantuan source dan helper yang dapat diperiksa tanpa layanan dijelaskan pada modul setup. Source `--help` tidak membuka koneksi atau membaca secret. Jangan menyamakan bantuan source yang berhasil dengan hasil compile atau startup layanan.
 
+## Jika build berhenti pada pemeriksaan tipe TypeScript
+
+Jika log menunjuk `RUN npm run build` dengan kode `TS...`, perbaiki source/deklarasi sesuai error terlebih dahulu. Stage lain yang bertanda `CANCELED` dapat dibatalkan akibat kegagalan build yang sama, bukan error tambahan. Jangan mematikan `strict` atau mengaktifkan `skipLibCheck` untuk menyembunyikan masalah.
+
+Setelah source dan lockfile diperbarui, pengguna menjalankan dari Bash WSL pada root proyek:
+
+```bash
+docker compose build api worker
+docker compose --profile whatsapp build gateway
+docker compose --profile test build tests
+docker compose --profile test run --rm tests
+```
+
+Gunakan cache normal; tidak perlu `down -v`, menghapus volume, atau `prune` untuk memperbaiki deklarasi. Build app dan gateway memakai `src/` serta lockfile yang sama, tetapi Dockerfile berbeda sehingga keduanya perlu diperiksa. Perintah ini adalah prosedur pengguna, bukan hasil lulus yang diklaim assistant.
+
 ## Peta sumber tes
 
 | File | Perilaku yang disiapkan dalam source |

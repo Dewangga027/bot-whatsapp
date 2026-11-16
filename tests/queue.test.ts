@@ -223,7 +223,7 @@ test('offline Redis rejects enqueue promptly without a fallback', { timeout: 10_
   assert.ok(Date.now() - started < 2_000);
   assert.equal(await context.database.findReport(message), null);
   assert.equal(await context.queue.getJob(getJobId(message)), undefined);
-  const client = await queue.client;
+  const client = queue.redisClient;
   const ended = client.status === 'end'
     ? Promise.resolve()
     : once(client, 'end', { signal: AbortSignal.timeout(2_000) });
@@ -237,7 +237,7 @@ test('one queue survives a disconnected client and retains raw data on reconnect
   t.after(() => context.close());
   const message = context.message();
   const id = await enqueueMessage(message, context.queue);
-  const client = await context.queue.client;
+  const client = context.queue.redisClient;
   const closed = once(client, 'end');
   client.disconnect();
   await closed;

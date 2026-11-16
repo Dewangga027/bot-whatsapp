@@ -14,7 +14,7 @@ export async function retryFailedJob(jobId: string, queue?: ChecklistQueue): Pro
       if (config.service !== 'ops') { throw new Error('Konfigurasi operator tidak valid'); }
       ownedQueue = createQueue(config.redis);
       queue = ownedQueue;
-      const client = await queue.client;
+      const client = queue.redisClient;
       if (client.status !== 'ready') {
         if (client.status === 'end') { throw new Error('Redis tidak tersedia'); }
         const controller = new AbortController();

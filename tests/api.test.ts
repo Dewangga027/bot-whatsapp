@@ -264,7 +264,7 @@ test('read API and protected board over real HTTP and isolated stores', { timeou
       const invalid = await (await fetch(base + '/v1/checklists?view=staging&state=completed', { headers: { authorization } })).json();
       assert.equal(invalid[0].status, 'invalid');
       assert.equal(invalid[0].pressure, null);
-      const client = await context.queue.client;
+      const client = context.queue.redisClient;
       const invalidResult = JSON.stringify({ status: 'invalid', errors: [{ field: 'pesan', code: 'INVALID_HEADER', message: 'Judul tidak valid' }] });
       await client.hset(context.queue.toKey(acceptedId), 'returnvalue', invalidResult);
       await client.hset(context.queue.toKey(getJobId(queued)), 'returnvalue', invalidResult);
@@ -288,7 +288,7 @@ test('read API and protected board over real HTTP and isolated stores', { timeou
     const rows = await response.json();
     assert.equal(rows[0].status, 'received');
     assert.equal(rows[0].thickness, null);
-    const client = await context.queue.client;
+    const client = context.queue.redisClient;
     await client.hset(context.queue.toKey(id), 'returnvalue', JSON.stringify({ status: 'accepted', job_id: id }));
     const uncommitted = await (await fetch(base + '/v1/staging', { headers: { authorization } })).json();
     assert.equal(uncommitted.items[0].status, 'received');

@@ -123,7 +123,7 @@ export async function createIntegrationContext(namespace: 'queue' | 'api'): Prom
     readerDatabase = createDatabase(apiConfig.database);
     adminPool = new Pool(dbSettings);
     queue = createQueue(redisOptions);
-    const client = await queue.client;
+    const client = queue.redisClient;
     if (client.status !== 'ready') { await once(client, 'ready'); }
     if (await queue.getJobCountByTypes('wait', 'active', 'completed', 'failed', 'delayed', 'paused') !== 0) {
       // Refuse leftovers rather than deleting another interrupted test's evidence.

@@ -305,7 +305,7 @@ export async function createApi(config?: ApiConfig, dependencies?: { database: D
   });
   app.get('/healthz', async (_request, reply) => {
     const [redis, postgresql] = await Promise.allSettled([
-      readRedis(async () => (await queue.client).ping()), database.ping(),
+      readRedis(() => queue.redisClient.ping()), database.ping(),
     ]);
     return reply.code(redis.status === 'fulfilled' && postgresql.status === 'fulfilled' ? 200 : 503).send({
       redis: redis.status === 'fulfilled' ? 'ok' : 'unavailable',

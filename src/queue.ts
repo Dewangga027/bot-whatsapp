@@ -7,7 +7,9 @@ import { loadConfig } from './config.js';
 import type { IncomingMessage, JobData, JobResult } from './types.js';
 
 export const QUEUE_NAME = 'monitoring-drawdown';
-export type ChecklistQueue = Queue<JobData, JobResult, 'checklist'>;
+export type ChecklistQueue = Queue<JobData, JobResult, 'checklist'> & {
+  readonly redisClient: Redis;
+};
 
 let defaultQueue: ChecklistQueue | undefined;
 
@@ -16,14 +18,14 @@ export function createQueue(settings: RedisOptions): ChecklistQueue {
   connection.on('error', () => { console.error('Redis tidak tersedia'); });
   let queue: ChecklistQueue;
   try {
-    queue = new Queue<JobData, JobResult, 'checklist'>(QUEUE_NAME, {
+    queue = Object.assign(new Queue<JobData, JobResult, 'checklist'>(QUEUE_NAME, {
       connection,
       // BullMQ's initial INFO must not permanently reject a cold/offline connection.
       // Redis compatibility is fixed by the pinned deployment image instead.
       skipWaitingForReady: true,
       skipVersionCheck: true,
       defaultJobOptions: { attempts: 1, removeOnComplete: false, removeOnFail: false },
-    });
+    }), { redisClient: connection });
   } catch (error) {
     connection.disconnect();
     throw error;
@@ -81,7 +83,7 @@ export async function enqueueMessage(message: IncomingMessage, queue?: Checklist
         const config = loadConfig('ops');
         if (config.service !== 'ops') { throw new Error('Konfigurasi antrean tidak valid'); }
         defaultQueue = createQueue(config.redis);
-        const client = await defaultQueue.client;
+        const client = defaultQueue.redisClient;
         if (client.status !== 'ready') {
           if (client.status === 'end') { throw new Error('Redis tidak tersedia'); }
           const controller = new AbortController();
