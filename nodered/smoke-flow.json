@@ -1,0 +1,329 @@
+[
+  {
+    "id": "monitoring-checklist-adapter",
+    "type": "subflow",
+    "name": "Monitoring checklist adapter",
+    "info": "Impor subflow ini saja ke instalasi existing. Gabungkan functionGlobalContext dari settings.fragment.cjs tanpa mengganti pengaturan keamanan. Poll start/5s, deadline 4s termasuk body, satu siklus aktif. Output 1 hanya array sepuluh header; semua kolom widget wajib Text (bukan HTML). Output 2 status teks dengan state/message/last_success_at. Jangan wire request/global/token ke UI atau debug. Pertahankan ID, halaman, dan tema tabel existing. Akses HTTP/Socket.IO dashboard perlu batas akses tersendiri; adminAuth editor bukan proteksi dashboard.",
+    "category": "monitoring",
+    "in": [
+      {
+        "x": 40,
+        "y": 100,
+        "wires": [
+          {
+            "id": "monitoring-checklist-poll"
+          }
+        ]
+      }
+    ],
+    "out": [
+      {
+        "x": 620,
+        "y": 100,
+        "wires": [
+          {
+            "id": "monitoring-checklist-poll",
+            "port": 0
+          }
+        ]
+      },
+      {
+        "x": 620,
+        "y": 160,
+        "wires": [
+          {
+            "id": "monitoring-checklist-poll",
+            "port": 1
+          }
+        ]
+      }
+    ],
+    "env": [],
+    "meta": {},
+    "color": "#D8BFD8",
+    "outputLabels": [
+      "Array sepuluh header (Text)",
+      "Status pembaruan"
+    ]
+  },
+  {
+    "id": "monitoring-checklist-inject",
+    "type": "inject",
+    "z": "monitoring-checklist-adapter",
+    "name": "Mulai dan setiap 5 detik",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "5",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 1,
+    "payload": "",
+    "payloadType": "date",
+    "x": 190,
+    "y": 180,
+    "wires": [
+      [
+        "monitoring-checklist-poll"
+      ]
+    ]
+  },
+  {
+    "id": "monitoring-checklist-poll",
+    "type": "function",
+    "z": "monitoring-checklist-adapter",
+    "name": "Baca data dan summary, deadline 4s",
+    "func": "delete msg.headers;\nif (context.get('monitoringBusy')) {\n  return null;\n}\ncontext.set('monitoringBusy', true);\nconst lastSuccess = context.get('monitoringLastSuccess') || null;\nconst previousRows = context.get('monitoringRows');\nconst states = ['waiting', 'active', 'completed', 'failed', 'delayed', 'paused'];\nlet label = '100 laporan final terbaru';\n\nfunction status(state, message, last_success_at) {\n  return { payload: { state, message, last_success_at } };\n}\n\nfunction projectRows(rows) {\n  if (!Array.isArray(rows) || rows.length > 100) {\n    throw new Error('Respons data tidak valid');\n  }\n  const statuses = ['received', 'queued', 'invalid', 'accepted', 'failed'];\n  return rows.map(function projectRow(row) {\n    if (!row || typeof row !== 'object' || Array.isArray(row)) {\n      throw new Error('Baris data tidak valid');\n    }\n    for (const key of ['message_id', 'timestamp', 'chat_id']) {\n      if (typeof row[key] !== 'string') {\n        throw new Error('Kolom data tidak valid');\n      }\n    }\n    for (const key of ['sender_id', 'machine', 'notes']) {\n      if (row[key] !== null && typeof row[key] !== 'string') {\n        throw new Error('Kolom data tidak valid');\n      }\n    }\n    for (const key of ['thickness', 'pressure', 'vacuum']) {\n      if (row[key] !== null && (typeof row[key] !== 'number' || !Number.isFinite(row[key]))) {\n        throw new Error('Kolom data tidak valid');\n      }\n    }\n    if (!statuses.includes(row.status)) {\n      throw new Error('Status data tidak valid');\n    }\n    return {\n      message_id: row.message_id,\n      timestamp: row.timestamp,\n      chat_id: row.chat_id,\n      sender_id: row.sender_id,\n      machine: row.machine,\n      thickness: row.thickness,\n      pressure: row.pressure,\n      vacuum: row.vacuum,\n      notes: row.notes,\n      status: row.status,\n    };\n  });\n}\n\nfunction summaryText(summary) {\n  if (!summary || typeof summary !== 'object' || !summary.queue_counts ||\n      !Number.isSafeInteger(summary.reports_accepted) || summary.reports_accepted < 0) {\n    throw new Error('Respons ringkasan tidak valid');\n  }\n  for (const state of states) {\n    if (!Number.isSafeInteger(summary.queue_counts[state]) || summary.queue_counts[state] < 0) {\n      throw new Error('Jumlah native state tidak valid');\n    }\n  }\n  return 'Native state BullMQ: ' + states.map(function labelCount(state) {\n    return state + '=' + summary.queue_counts[state];\n  }).join(', ') + '. Laporan final total=' + summary.reports_accepted + '.';\n}\n\ntry {\n  const http = global.get('monitoringHttp');\n  const token = global.get('monitoringApiReadToken');\n  const view = env.get('MONITORING_VIEW') || 'final';\n  const queueState = env.get('MONITORING_QUEUE_STATE') || 'waiting';\n  if (!http || typeof http.fetch !== 'function' || typeof token !== 'string' || !token ||\n      !['final', 'staging'].includes(view) || !states.includes(queueState)) {\n    throw new Error('Konfigurasi adapter tidak valid');\n  }\n  const base = new http.URL(env.get('MONITORING_API_BASE_URL') || 'http://monitoring-api:3000');\n  if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password ||\n      base.search || base.hash || base.pathname !== '/') {\n    throw new Error('Alamat API harus berupa origin HTTP atau HTTPS');\n  }\n  if (view === 'staging') {\n    label = 'Halaman staging state ' + queueState + ' (offset 0, limit 100)';\n  }\n  node.send([null, status('loading', label + '. Memuat data dan ringkasan antrean; baris sebelumnya tetap ditampilkan.', lastSuccess)]);\n\n  async function requestJson(path) {\n    const controller = new http.AbortController();\n    const headers = { Authorization: 'Bearer ' + token, Accept: 'application/json' };\n    let timer;\n    const deadline = new Promise(function requestDeadline(resolve, reject) {\n      timer = setTimeout(function abortRequest() {\n        controller.abort();\n        reject(new Error('Batas waktu API 4 detik terlampaui'));\n      }, 4000);\n    });\n    try {\n      const response = http.fetch(new http.URL(path, base), {\n        method: 'GET', headers, signal: controller.signal, redirect: 'error',\n      }).then(async function readResponse(result) {\n        if (!result.ok) {\n          await result.body?.cancel();\n          throw new Error('API tidak dapat dibaca');\n        }\n        return await result.json();\n      });\n      return await Promise.race([response, deadline]);\n    } finally {\n      clearTimeout(timer);\n      delete headers.Authorization;\n      delete headers.Accept;\n    }\n  }\n\n  const dataPath = '/v1/checklists?view=' + view + '&limit=100' +\n    (view === 'staging' ? '&state=' + queueState : '');\n  const results = await Promise.allSettled([\n    requestJson(dataPath).then(projectRows),\n    requestJson('/v1/staging/summary').then(summaryText),\n  ]);\n  const data = results[0];\n  const summary = results[1];\n  const queueMessage = summary.status === 'fulfilled'\n    ? summary.value\n    : 'Ringkasan antrean gagal diperbarui; jumlah native state tidak tersedia.';\n\n  if (data.status === 'rejected') {\n    const staleMessage = lastSuccess\n      ? 'Data lama dipertahankan dari pembaruan terakhir.'\n      : 'Belum ada data berhasil dimuat; tabel tidak diisi dengan data pengganti.';\n    return [Array.isArray(previousRows) ? { payload: previousRows } : null,\n      status('error', label + '. Gagal memperbarui data. ' + staleMessage + ' ' + queueMessage + ' Coba otomatis pada siklus berikutnya.', lastSuccess)];\n  }\n\n  const updatedAt = new Date().toISOString();\n  context.set('monitoringRows', data.value);\n  context.set('monitoringLastSuccess', updatedAt);\n  const dataMessage = data.value.length === 0\n    ? 'Tidak ada laporan pada halaman ini.'\n    : data.value.length + ' baris ditampilkan; bukan seluruh data server.';\n  let state = data.value.length === 0 ? 'empty' : 'ready';\n  if (summary.status === 'rejected') {\n    state = 'error';\n  }\n  return [{ payload: data.value }, status(state, label + '. ' + dataMessage + ' ' + queueMessage, updatedAt)];\n} catch {\n  const staleMessage = lastSuccess ? 'Data lama tetap ditampilkan.' : 'Belum ada data berhasil dimuat.';\n  return [Array.isArray(previousRows) ? { payload: previousRows } : null,\n    status('error', label + '. Konfigurasi atau akses adapter gagal. Periksa pengaturan server. ' + staleMessage, lastSuccess)];\n} finally {\n  context.set('monitoringBusy', false);\n}\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "context.set('monitoringBusy', false);",
+    "finalize": "",
+    "libs": [],
+    "x": 390,
+    "y": 100,
+    "wires": [
+      [],
+      []
+    ]
+  },
+  {
+    "id": "monitoring-smoke-tab",
+    "type": "tab",
+    "label": "TEST ONLY - Checklist monitoring",
+    "disabled": false,
+    "info": "Flow uji terpisah. Jangan impor smoke-flow ke instalasi produksi. Editor/API admin dinonaktifkan; dashboard hanya lewat port localhost Compose. Tidak ada data contoh atau autentikasi WhatsApp."
+  },
+  {
+    "id": "monitoring-smoke-adapter",
+    "type": "subflow:monitoring-checklist-adapter",
+    "z": "monitoring-smoke-tab",
+    "name": "Adapter uji terisolasi",
+    "x": 220,
+    "y": 140,
+    "wires": [
+      [
+        "monitoring-smoke-table"
+      ],
+      [
+        "monitoring-smoke-status"
+      ]
+    ]
+  },
+  {
+    "id": "monitoring-smoke-table",
+    "type": "ui-table",
+    "z": "monitoring-smoke-tab",
+    "group": "monitoring-smoke-group",
+    "name": "TEST ONLY - Sepuluh header checklist",
+    "label": "Checklist (halaman API, maksimum 100 baris)",
+    "order": 2,
+    "width": 0,
+    "height": 0,
+    "maxrows": 0,
+    "passthru": false,
+    "autocols": false,
+    "showSearch": false,
+    "deselect": true,
+    "selectionType": "none",
+    "columns": [
+      {
+        "title": "message_id",
+        "key": "message_id",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      },
+      {
+        "title": "timestamp",
+        "key": "timestamp",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      },
+      {
+        "title": "chat_id",
+        "key": "chat_id",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      },
+      {
+        "title": "sender_id",
+        "key": "sender_id",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      },
+      {
+        "title": "machine",
+        "key": "machine",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      },
+      {
+        "title": "thickness",
+        "key": "thickness",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      },
+      {
+        "title": "pressure",
+        "key": "pressure",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      },
+      {
+        "title": "vacuum",
+        "key": "vacuum",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      },
+      {
+        "title": "notes",
+        "key": "notes",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      },
+      {
+        "title": "status",
+        "key": "status",
+        "keyType": "key",
+        "type": "text",
+        "width": "",
+        "align": "start"
+      }
+    ],
+    "mobileBreakpoint": "md",
+    "mobileBreakpointType": "defaults",
+    "action": "replace",
+    "className": "monitoring-smoke-table",
+    "x": 570,
+    "y": 100,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "monitoring-smoke-status",
+    "type": "ui-template",
+    "z": "monitoring-smoke-tab",
+    "group": "monitoring-smoke-group",
+    "page": "",
+    "ui": "",
+    "name": "TEST ONLY - Status teks",
+    "order": 1,
+    "width": 0,
+    "height": 0,
+    "head": "",
+    "format": "<template>\n  <section lang=\"id\" aria-label=\"Status pembaruan checklist\">\n    <p role=\"status\" aria-live=\"polite\" aria-atomic=\"true\">{{ msg?.payload?.message || 'Memuat 100 laporan final terbaru dan ringkasan antrean.' }}</p>\n    <p>Pembaruan data terakhir: <time v-if=\"msg?.payload?.last_success_at\" :datetime=\"msg.payload.last_success_at\">{{ msg.payload.last_success_at }}</time><span v-else>belum berhasil</span>.</p>\n  </section>\n</template>\n<style>\n.monitoring-smoke-status p { margin: 0.5rem 0; overflow-wrap: anywhere; }\n.monitoring-smoke-table td { overflow-wrap: anywhere; white-space: normal; }\n</style>",
+    "noerr": 0,
+    "storeOutMessages": true,
+    "passthru": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "monitoring-smoke-status",
+    "x": 550,
+    "y": 180,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "monitoring-smoke-group",
+    "type": "ui-group",
+    "name": "Checklist dan status (uji terisolasi)",
+    "page": "monitoring-smoke-page",
+    "width": 12,
+    "height": 1,
+    "order": 1,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "monitoring-smoke-page",
+    "type": "ui-page",
+    "name": "Uji checklist monitoring",
+    "ui": "monitoring-smoke-base",
+    "path": "/checklists",
+    "icon": "",
+    "layout": "grid",
+    "theme": "monitoring-smoke-theme",
+    "order": 1,
+    "className": "",
+    "visible": "true",
+    "disabled": false,
+    "breakpoints": [
+      {
+        "name": "Default",
+        "px": "0",
+        "cols": "3"
+      },
+      {
+        "name": "Tablet",
+        "px": "576",
+        "cols": "6"
+      },
+      {
+        "name": "Small Desktop",
+        "px": "768",
+        "cols": "9"
+      },
+      {
+        "name": "Desktop",
+        "px": "1024",
+        "cols": "12"
+      }
+    ]
+  },
+  {
+    "id": "monitoring-smoke-base",
+    "type": "ui-base",
+    "name": "Monitoring checklist (uji lokal)",
+    "path": "/dashboard",
+    "includeClientData": false,
+    "acceptsClientConfig": [],
+    "showPathInSidebar": false,
+    "headerContent": "page",
+    "navigationStyle": "none",
+    "titleBarStyle": "default"
+  },
+  {
+    "id": "monitoring-smoke-theme",
+    "type": "ui-theme",
+    "name": "Tema standar Dashboard2 khusus uji",
+    "colors": {
+      "surface": "#ffffff",
+      "primary": "#0094ce",
+      "bgPage": "#eeeeee",
+      "groupBg": "#ffffff",
+      "groupOutline": "#cccccc"
+    },
+    "sizes": {
+      "density": "default",
+      "pagePadding": "12px",
+      "groupGap": "12px",
+      "groupBorderRadius": "4px",
+      "widgetGap": "12px"
+    }
+  }
+]
