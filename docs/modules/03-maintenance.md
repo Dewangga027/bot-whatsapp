@@ -4,7 +4,7 @@ Lakukan prosedur mutatif hanya setelah memilih project dan menjadwalkan dampakny
 
 ## Pemeriksaan rutin
 
-Dari WSL Ubuntu, direktori `/mnt/e/bot-whatsapp-1`, dengan `COMPOSE_PROJECT_NAME` sesuai target:
+Dari WSL Ubuntu, direktori `/mnt/e/bot-whatsapp-1`, dengan `COMPOSE_PROJECT_NAME` sesuai target dan Docker Engine native yang disetujui. Setelah perubahan shell/context atau host, periksa kembali endpoint dan OS daemon seperti [modul setup](01-setup.md#wsl-dan-dependency); jangan menjalankan operasi melalui Docker Desktop. Perubahan dependency/image perlu pemeriksaan ulang [lisensi dan ketentuan layanan](05-licenses.md), bukan hanya perubahan digest.
 
 ```bash
 docker compose --profile whatsapp ps
@@ -28,7 +28,7 @@ docker compose exec -T redis sh -eu -c '
 '
 ```
 
-Konfigurasi yang diharapkan dari source: AOF aktif, `appendfsync everysec`, `maxmemory 256mb`, `maxmemory-policy noeviction`, serta RDB default image tetap ada. Batas container Redis1GB dan shm gateway512MB adalah titik awal, bukan kapasitas yang telah diukur. Pantau `used_memory`, error persistence/AOF, kapasitas disk Docker Desktop/WSL, dan pertumbuhan PostgreSQL/job.
+Konfigurasi yang diharapkan dari source: AOF aktif, `appendfsync everysec`, `maxmemory 256mb`, `maxmemory-policy noeviction`, serta RDB default image tetap ada. Batas container Redis1GB dan shm gateway512MB adalah titik awal, bukan kapasitas yang telah diukur. Pantau `used_memory`, error persistence/AOF, kapasitas filesystem Engine native dan disk virtual WSL, serta pertumbuhan PostgreSQL/job.
 
 Riwayat completed/failed dipertahankan. Tidak ada TTL, automatic cleanup, atau kebijakan retensi yang mengizinkan purge. Saat noeviction penuh, write ditolak; data lama tidak dibuang. Tanggapi dengan menahan ingestion yang terdampak, menilai kapasitas dan backup, lalu keputusan kapasitas/retensi eksplisit. Jangan memakai `FLUSHALL`, `docker system prune --volumes`, `down -v`, atau mengganti eviction policy sebagai pemulihan rutin.
 

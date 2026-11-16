@@ -2,6 +2,8 @@
 
 Pengguna menjalankan perintah dan menilai hasil. Tabel di bawah berisi prosedur serta hasil yang diharapkan, bukan tanda lulus. Jangan menguji dengan database, Redis, credential, sesi WhatsApp, grup, atau volume operasional.
 
+Sebelum pull, build, atau menjalankan image, terapkan batas pada [05 Lisensi](05-licenses.md) dan pastikan memakai Docker Engine native WSL seperti [modul setup](01-setup.md#wsl-dan-dependency). Lingkungan uji terisolasi tidak membatalkan kewajiban lisensi; jangan memakai Docker Desktop.
+
 ## Suite otomatis dengan store nyata
 
 Dari Bash WSL Ubuntu:

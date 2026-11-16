@@ -6,12 +6,15 @@ Dokumen ini menjelaskan source yang tersedia dan prosedur yang dijalankan penggu
 
 | Modul | Dipakai ketika |
 | --- | --- |
+| [05 Lisensi](modules/05-licenses.md) | Dibaca sebelum setup/tes: Engine WSL tanpa Desktop, batas lisensi dependency/image, registry dan WhatsApp |
 | [01 Setup](modules/01-setup.md) | Menyiapkan WSL, secret, store, jalur pesan manual, pairing, API, dan Node-RED |
 | [02 Pengujian](modules/02-testing.md) | Menjalankan suite terisolasi dan skenario penerimaan, termasuk crash dan gangguan layanan |
 | [03 Maintenance](modules/03-maintenance.md) | Memeriksa kapasitas, menangani failed job, restart, backup, restore, serta sesi dan credential |
 | [04 Peta kode](modules/04-code-map.md) | Menemukan pemilik aturan, entrypoint, kontrak data, dan resource yang harus ditutup |
 
 Semua contoh shell memakai Bash di WSL Ubuntu dengan direktori kerja `/mnt/e/bot-whatsapp-1`. Jangan menyalin sintaks Bash langsung ke PowerShell. Perintah di dalam blok adalah instruksi untuk operator, bukan rekaman eksekusi.
+
+Jalur deployment memakai Docker Engine Community native di WSL, bukan Docker Desktop. Jangan menjalankan komponen yang belum disetujui IT/legal. Redis8, dependency LGPL dan browser/WhatsApp masih memerlukan penilaian yang dijelaskan pada modul lisensi; ketersediaan source bukan persetujuan penggunaan perusahaan.
 
 ## Alur dan batas data
 

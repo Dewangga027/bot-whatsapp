@@ -2,9 +2,11 @@
 
 Semua langkah di sini dilakukan operator. Belum ada hasil build, startup, pairing, atau koneksi yang dinyatakan berhasil.
 
+Sebelum menjalankan langkah apa pun, baca [05 Lisensi dan penggunaan perusahaan](05-licenses.md). Jangan jalankan komponen yang belum disetujui kebijakan IT/legal, termasuk Redis8 AGPL, dependency LGPL, browser, dan akses WhatsApp. Panduan ini tidak menggunakan Docker Desktop.
+
 ## WSL dan dependency
 
-Gunakan Docker Desktop dalam mode Linux containers dengan integrasi distro WSL Ubuntu, Docker Compose v2 yang mendukung `up --wait`, BuildKit, serta Node.js 24 di lingkungan yang menjalankan script setup. Akses registry diperlukan saat build. Jalankan dari Bash:
+Gunakan Docker Engine Community yang berjalan native di distro WSL2 Ubuntu, Docker CLI, serta plugin Compose/Buildx. Docker Desktop dan integrasi daemon Desktop ke WSL bukan prerequisite dan tidak digunakan. Compose perlu mendukung `up --wait`; Node.js24 diperlukan pada lingkungan yang menjalankan script setup. Akses registry mengikuti kebijakan perusahaan. Jalankan dari Bash:
 
 ```bash
 cd /mnt/e/bot-whatsapp-1
@@ -12,6 +14,19 @@ node --version
 docker version
 docker compose version
 ```
+
+Pastikan terminal WSL tidak sekadar menjadi client daemon Docker Desktop:
+
+```bash
+docker context show
+docker context inspect --format '{{.Name}} {{.Endpoints.docker.Host}}'
+docker info --format 'OS={{.OperatingSystem}}; Root={{.DockerRootDir}}'
+dpkg-query -W docker-ce docker-ce-cli docker-compose-plugin docker-buildx-plugin containerd.io
+```
+
+Untuk jalur native yang dipakai proyek, context lokal biasanya `default`, endpoint `unix:///var/run/docker.sock`, OS daemon Ubuntu, dan data root `/var/lib/docker`. Socket Unix saja tidak membuktikan daemon native; cocokkan metadata daemon dan paket. Periksa juga pengaruh `DOCKER_HOST`/`DOCKER_CONTEXT` bila disetel. Jika muncul Docker Desktop, `desktop-linux`, atau endpoint Desktop, hentikan langkah berikutnya dan minta administrator memilih Engine native yang disetujui. Jangan mengganti context, memasang ulang Engine, memindahkan data root, atau menghapus volume secara otomatis.
+
+Engine sudah tersedia pada device ini; tidak perlu memasang ulang atau menjalankan installer. Untuk host baru, administrator dapat mengikuti [instalasi Engine dari repository apt resmi](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), bukan installer Desktop. Perubahan host, konfigurasi systemd, dan akses grup `docker` memerlukan persetujuan IT; grup tersebut memberi akses setara root. Lisensi Apache-2.0 pada Engine/CLI/Compose tidak sama dengan subscription Docker Desktop, sedangkan terms/rate limit registry tetap berlaku.
 
 Node 24 di Windows dan Node 24 di WSL adalah instalasi berbeda. Jangan memakai `node_modules` hasil `npm ci` Windows untuk menjalankan tool Linux, atau sebaliknya. Checkout `/mnt/e` berbagi file dengan Windows; gunakan dependency host pada satu OS saja, atau checkout Linux terpisah untuk pekerjaan host. Build Docker memasang dependency Linux sendiri dan `.dockerignore` mengecualikan `node_modules` host. Docker tidak memerlukan `npm ci` host.
 
@@ -23,7 +38,7 @@ npm run build
 npm run test:unit
 ```
 
-`--ignore-scripts` mencegah unduhan browser kedua. Gateway memakai browser dari image Puppeteer, bukan Chromium host. Full `npm test` bukan pengganti unit test host; jalankan melalui profile test pada [modul pengujian](02-testing.md).
+`--ignore-scripts` mencegah unduhan browser kedua. Gateway memakai Chrome for Testing yang sudah ada dalam image Puppeteer, bukan Chromium host. Lisensi library Puppeteer tidak otomatis mencakup seluruh image/browser; lihat modul lisensi sebelum membangunnya. Full `npm test` bukan pengganti unit test host; jalankan melalui profile test pada [modul pengujian](02-testing.md).
 
 ## Pilih project baru untuk lab
 

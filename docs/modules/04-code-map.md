@@ -117,7 +117,7 @@ Menggunakan script npm host tidak otomatis memuat `.env`, memetakan secret, atau
 | `compose.yaml` | Profile, mounts minimum, network, port localhost, volume, grace, image service |
 | `compose.nodered.yaml` | Opt-in API ke external `monitoring_shared` sebagai `monitoring-api` |
 | `Dockerfile` | Target dependencies/build/tests/production-dependencies/runtime; app UID1000 |
-| `gateway.Dockerfile` | Browser Puppeteer terpasang, cache, auth writable, runtime pptruser UID10042 |
+| `gateway.Dockerfile` | Chrome for Testing dalam image Puppeteer, cache, auth writable, runtime pptruser UID10042; terms browser terpisah dari library |
 | `.dockerignore`, `.gitignore`, `.gitattributes` | Pengecualian credential/data/dependency host dan LF script |
 | `.env.example` | Key/path tanpa password mentah; bukan konfigurasi universal semua role |
 | `redis/redis.conf`, `start.sh`, `healthcheck.sh` | AOF/everysec/noeviction, secret auth, privilege-drop entrypoint resmi, PONG |
@@ -125,6 +125,7 @@ Menggunakan script npm host tidak otomatis memuat `.env`, memetakan secret, atau
 | `scripts/test-entrypoint.sh` | Guard lingkungan uji, migrasi dasar, full suite |
 | `scripts/backup.sh` | Stop writer, dump SQL, stop Redis, arsip penuh, restart service semula |
 | `scripts/restore-test.sh` | Target uji baru, checksum/arsip, role fixture, tanpa worker/gateway/API |
+| `docs/modules/05-licenses.md` | Audit lisensi source/lockfile, batas inventaris image, kebijakan tanpa Docker Desktop, dan syarat sebelum penggunaan perusahaan |
 
 Profile default berisi redis/db/worker/api; `whatsapp` gateway; `ops` migrate/ops/pgadmin; `test` redis-test/db-test/tests; `test-ui` nodered-smoke. Port host hanya API localhost3000, pgAdmin localhost5050, smoke localhost1881. Volume default: `monitoring_redis_data`, `monitoring_postgres_data`, `monitoring_whatsapp_auth`, `monitoring_pgadmin_data`, `monitoring_nodered_smoke_data`; override project mengganti prefix.
 
