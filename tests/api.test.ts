@@ -103,6 +103,18 @@ test('read API and protected board over real HTTP and isolated stores', { timeou
     }
   });
 
+  await t.test('paging rejects encoded line terminators on every paginated route', async () => {
+    for (const path of ['/v1/checklists?', '/v1/checklists?view=staging&', '/v1/staging?', '/v1/monitoring?']) {
+      for (const parameter of ['limit=1', 'offset=0']) {
+        for (const suffix of ['%0A', '%0D', '%0D%0A', '%E2%80%A8', '%E2%80%A9']) {
+          const response = await fetch(base + path + parameter + suffix, { headers: { authorization } });
+          assert.equal(response.status, 400, path + parameter + suffix);
+          assert.equal((await response.json()).error.code, 'INVALID_QUERY');
+        }
+      }
+    }
+  });
+
   await t.test('empty results are successful and health is truthful', async () => {
     for (const path of ['/v1/checklists', '/v1/checklists?view=final', '/v1/checklists?view=staging']) {
       const response = await fetch(base + path, { headers: { authorization, origin: 'https://example.invalid' } });
@@ -181,6 +193,38 @@ test('read API and protected board over real HTTP and isolated stores', { timeou
     assert.equal(summary.queue_counts.waiting, 3);
   });
 
+  await t.test('waiting paging includes paused-list records while summary counts remain native', async () => {
+    await context.queue.pause();
+    try {
+      const idsByState: string[][] = [];
+      for (const state of ['waiting', 'paused']) {
+        const ids: string[] = [];
+        for (let offset = 0; offset <= 3; offset += 1) {
+          const response = await fetch(`${base}/v1/staging?state=${state}&limit=1&offset=${offset}`, { headers: { authorization } });
+          assert.equal(response.status, 200);
+          const page = await response.json();
+          assert.equal(page.total, 3);
+          assert.equal(page.limit, 1);
+          assert.equal(page.offset, offset);
+          assert.equal(page.items.length, offset < 3 ? 1 : 0);
+          for (const item of page.items) ids.push(item.job_id);
+        }
+        assert.deepEqual([...ids].sort(), [acceptedId, getJobId(received), getJobId(queued)].sort());
+        idsByState.push(ids);
+      }
+      assert.deepEqual(idsByState[0], idsByState[1]);
+      const summary = await (await fetch(base + '/v1/staging/summary', { headers: { authorization } })).json();
+      assert.equal(summary.queue_counts.waiting, 0);
+      assert.equal(summary.queue_counts.paused, 3);
+      assert.equal(summary.reports_accepted, 2);
+    } finally {
+      await context.queue.resume();
+    }
+    const resumed = await (await fetch(base + '/v1/staging', { headers: { authorization } })).json();
+    assert.equal(resumed.total, 3);
+    assert.equal(resumed.items.length, 3);
+  });
+
   await t.test('all supported native states can be read with bounded paging', async () => {
     for (const state of ['waiting', 'active', 'completed', 'failed', 'delayed', 'paused']) {
       const response = await fetch(`${base}/v1/staging?state=${state}&limit=1&offset=0`, { headers: { authorization } });
@@ -252,6 +296,10 @@ test('read API and protected board over real HTTP and isolated stores', { timeou
     const malformed = await fetch(base + '/v1/staging', { headers: { authorization } });
     assert.equal(malformed.status, 500);
     assert.deepEqual(await malformed.json(), { error: { code: 'INTERNAL_ERROR', message: 'Kesalahan internal layanan' } });
+    await client.hset(context.queue.toKey(id), 'data', '{private malformed data');
+    const boardMalformed = await fetch(`${base}/ops/queues/api/queues/${QUEUE_NAME}/${id}`, { headers: { authorization: basic } });
+    assert.equal(boardMalformed.status, 500);
+    assert.deepEqual(await boardMalformed.json(), { error: { code: 'INTERNAL_ERROR', message: 'Kesalahan internal layanan' } });
     await job.remove();
   });
 
@@ -306,6 +354,14 @@ test('read API and protected board over real HTTP and isolated stores', { timeou
         assert.match(error.message, /Redis/);
         assert.ok(!JSON.stringify(error).includes(context.apiConfig.redis.password));
       }
+      const boardPath = '/ops/queues/api/queues';
+      assert.equal((await fetch(url + boardPath)).status, 401);
+      assert.equal((await fetch(url + boardPath, { headers: { authorization } })).status, 401);
+      const boardResponse = await fetch(url + boardPath, { headers: { authorization: basic } });
+      assert.equal(boardResponse.status, 503);
+      assert.deepEqual(await boardResponse.json(), {
+        error: { code: 'DEPENDENCY_UNAVAILABLE', message: 'Redis tidak tersedia' },
+      });
       const health = await fetch(url + '/healthz');
       assert.equal(health.status, 503);
       assert.deepEqual(await health.json(), { redis: 'unavailable', postgresql: 'ok' });

@@ -4,6 +4,8 @@ import basicAuth from '@fastify/basic-auth';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { FastifyAdapter } from '@bull-board/fastify';
+import { ConnectionClosedError } from 'bullmq';
+import { MaxRetriesPerRequestError } from 'ioredis/built/errors/index.js';
 import { loadConfig, type ServiceConfig } from './config.js';
 import { createDatabase, type Database, type FinalRecord } from './database.js';
 import { createQueue, type ChecklistQueue } from './queue.js';
@@ -68,7 +70,7 @@ function parseQuery(url: string, route: 'checklists' | 'staging' | 'monitoring' 
 
 function parseInteger(value: unknown, fallback: number, minimum: number, maximum: number, name: string): number {
   if (value === undefined) return fallback;
-  if (typeof value !== 'string' || !/^[0-9]+$/.test(value)) invalidQuery(`${name} harus integer desimal`);
+  if (typeof value !== 'string' || value.length === 0 || /[^0-9]/.test(value)) invalidQuery(`${name} harus integer desimal`);
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < minimum || number > maximum) invalidQuery(`${name} di luar rentang`);
   return number;
@@ -109,6 +111,27 @@ function errorResponse(error: unknown): ErrorResponse {
 function sendError(error: unknown, _request: FastifyRequest, reply: FastifyReply): FastifyReply {
   const response = errorResponse(error);
   return reply.code(response.status).send(response.body);
+}
+
+function isRedisConnectionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error instanceof ConnectionClosedError || error instanceof MaxRetriesPerRequestError) return true;
+  if ('code' in error) {
+    switch (error.code) {
+      case 'ECONNREFUSED':
+      case 'ECONNRESET':
+      case 'EPIPE':
+      case 'ETIMEDOUT':
+      case 'ENETUNREACH':
+      case 'EHOSTUNREACH':
+      case 'ENOTFOUND':
+      case 'EAI_AGAIN':
+        return true;
+    }
+  }
+  return error.message === 'Connection is closed.'
+    || error.message === "Stream isn't writeable and enableOfflineQueue options is false"
+    || error.message === 'Command timed out';
 }
 
 async function readRedis<T>(operation: () => Promise<T>): Promise<T> {
@@ -271,7 +294,8 @@ export async function createApi(config?: ApiConfig, dependencies?: { database: D
     const query = parseQuery(request.url, 'staging');
     const page = await stagingPage(queue, database, query);
     const counts = await queueCounts(queue);
-    return { items: page.items, total: counts[query.state], limit: query.limit, offset: query.offset };
+    const total = query.state === 'waiting' ? counts.waiting + counts.paused : counts[query.state];
+    return { items: page.items, total, limit: query.limit, offset: query.offset };
   });
   app.get('/v1/staging/summary', async (request) => {
     parseQuery(request.url, 'summary');
@@ -291,7 +315,12 @@ export async function createApi(config?: ApiConfig, dependencies?: { database: D
 
   app.register(async function boardScope(board) {
     board.addHook('onRoute', (options) => {
-      options.errorHandler = sendError;
+      options.errorHandler = (error, request, reply) => {
+        if (isRedisConnectionError(error)) {
+          return sendError(Object.assign(new Error('Redis tidak tersedia'), { code: 'REDIS_UNAVAILABLE' }), request, reply);
+        }
+        return sendError(error, request, reply);
+      };
     });
     await board.register(basicAuth, {
       authenticate: { realm: 'Monitoring queues' },
