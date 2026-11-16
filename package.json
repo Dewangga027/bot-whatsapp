@@ -8,11 +8,32 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "test:unit": "tsx --test tests/parser.test.ts tests/config.test.ts tests/gateway.test.ts",
+    "start:api": "node dist/api.js",
+    "start:worker": "node dist/worker.js",
+    "start:gateway": "node dist/gateway.js",
+    "migrate": "node dist/migrate.js",
+    "ops": "node dist/ops.js",
+    "setup:secrets": "node scripts/setup-secrets.mjs"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "@types/qrcode-terminal": "0.12.2",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "@bull-board/api": "9.13.2",
+    "@bull-board/fastify": "9.13.2",
+    "@fastify/basic-auth": "6.3.1",
+    "bullmq": "5.81.5",
+    "fastify": "5.12.8",
+    "ioredis": "5.11.1",
+    "pg": "8.23.1",
+    "puppeteer": "24.38.0",
+    "qrcode-terminal": "0.12.0",
+    "whatsapp-web.js": "1.34.8"
   }
 }
