@@ -34,10 +34,11 @@ export type IntegrationContext = {
 };
 
 export async function createIntegrationContext(namespace: 'queue' | 'api'): Promise<IntegrationContext> {
-  if (process.env.RUN_INTEGRATION_TESTS !== 'true' || process.env.TEST_ISOLATED !== 'true'
+  if (process.env.NODE_ENV !== 'test'
+    || process.env.RUN_INTEGRATION_TESTS !== 'true' || process.env.TEST_ISOLATED !== 'true'
     || process.env.PGDATABASE !== 'monitoring_test'
     || process.env.PGHOST !== 'db-test' || process.env.REDIS_HOST !== 'redis-test') {
-    throw new Error('Integration tests require isolated db-test/redis-test, monitoring_test, TEST_ISOLATED=true and RUN_INTEGRATION_TESTS=true');
+    throw new Error('Integration tests require NODE_ENV=test, isolated db-test/redis-test, monitoring_test, TEST_ISOLATED=true and RUN_INTEGRATION_TESTS=true');
   }
   const migrateConfig = loadConfig('migrate');
   const opsConfig = loadConfig('ops');

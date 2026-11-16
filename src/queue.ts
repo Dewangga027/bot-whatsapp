@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { Queue } from 'bullmq';
+import { Redis } from 'ioredis';
 import type { RedisOptions } from 'ioredis';
 import { loadConfig } from './config.js';
 import type { IncomingMessage, JobData, JobResult } from './types.js';
@@ -11,15 +12,38 @@ export type ChecklistQueue = Queue<JobData, JobResult, 'checklist'>;
 let defaultQueue: ChecklistQueue | undefined;
 
 export function createQueue(settings: RedisOptions): ChecklistQueue {
-  const queue = new Queue<JobData, JobResult, 'checklist'>(QUEUE_NAME, {
-    connection: { ...settings, enableOfflineQueue: false, maxRetriesPerRequest: 1 },
-    // BullMQ's initial INFO must not permanently reject a cold/offline connection.
-    // Redis compatibility is fixed by the pinned deployment image instead.
-    skipWaitingForReady: true,
-    skipVersionCheck: true,
-    defaultJobOptions: { attempts: 1, removeOnComplete: false, removeOnFail: false },
-  });
+  const connection = new Redis({ ...settings, enableOfflineQueue: false, maxRetriesPerRequest: 1 });
+  connection.on('error', () => { console.error('Redis tidak tersedia'); });
+  let queue: ChecklistQueue;
+  try {
+    queue = new Queue<JobData, JobResult, 'checklist'>(QUEUE_NAME, {
+      connection,
+      // BullMQ's initial INFO must not permanently reject a cold/offline connection.
+      // Redis compatibility is fixed by the pinned deployment image instead.
+      skipWaitingForReady: true,
+      skipVersionCheck: true,
+      defaultJobOptions: { attempts: 1, removeOnComplete: false, removeOnFail: false },
+    });
+  } catch (error) {
+    connection.disconnect();
+    throw error;
+  }
   queue.on('error', () => { console.error('Redis tidak tersedia'); });
+  const closeBullQueue = queue.close.bind(queue);
+  let closing: Promise<void> | undefined;
+  async function closeOwnedResources(): Promise<void> {
+    try {
+      await closeBullQueue();
+      if (connection.status === 'ready') { await connection.quit(); }
+    } finally {
+      connection.disconnect();
+    }
+  }
+  // The factory owns this shared client; offline QUIT cannot be relied on to close it.
+  queue.close = function close(): Promise<void> {
+    closing ??= closeOwnedResources();
+    return closing;
+  };
   return queue;
 }
 

@@ -223,6 +223,13 @@ test('offline Redis rejects enqueue promptly without a fallback', { timeout: 10_
   assert.ok(Date.now() - started < 2_000);
   assert.equal(await context.database.findReport(message), null);
   assert.equal(await context.queue.getJob(getJobId(message)), undefined);
+  const client = await queue.client;
+  const ended = client.status === 'end'
+    ? Promise.resolve()
+    : once(client, 'end', { signal: AbortSignal.timeout(2_000) });
+  await Promise.all([queue.close(), queue.close()]);
+  await ended;
+  assert.equal(client.status, 'end');
 });
 
 test('one queue survives a disconnected client and retains raw data on reconnect', { timeout: 15_000 }, async (t) => {
@@ -243,6 +250,30 @@ test('one queue survives a disconnected client and retains raw data on reconnect
   assert.equal((await context.waitForJob(id)).returnvalue.status, 'accepted');
 });
 
+test('offline default/explicit close and operator failure leave no reconnect handles', { timeout: 25_000 }, async (t) => {
+  const context = await createIntegrationContext('queue');
+  t.after(() => context.close());
+  const env = { ...process.env, REDIS_HOST: '127.0.0.1', REDIS_PORT: '1' };
+  for (const mode of ['default', 'explicit']) {
+    await exec(process.execPath, [
+      '--import', 'tsx', '--input-type=module', '-e',
+      `import { exerciseOfflineQueueClose } from './tests/support/pipeline.ts'; await exerciseOfflineQueueClose('${mode}');`,
+    ], { env, timeout: 7_000 });
+  }
+  await assert.rejects(
+    exec(process.execPath, ['--import', 'tsx', 'src/ops.ts', 'retry', 'wa-offline'], { env, timeout: 7_000 }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error && 'code' in error && 'killed' in error && 'stderr' in error);
+      assert.equal(error.code, 1);
+      assert.equal(error.killed, false);
+      assert.equal(typeof error.stderr, 'string');
+      assert.match(String(error.stderr), /Perintah operator gagal/);
+      assert.doesNotMatch(String(error.stderr), /Stream isn't writeable|enableOfflineQueue|ECONNREFUSED/);
+      return true;
+    },
+  );
+});
+
 test('worker and ops help run without credentials or service connections', async () => {
   const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot };
   for (const entry of ['src/worker.ts', 'src/ops.ts']) {
@@ -250,4 +281,18 @@ test('worker and ops help run without credentials or service connections', async
     assert.match(stdout, /Penggunaan:/);
     assert.equal(stderr, '');
   }
+});
+
+test('integration fixture refuses non-test NODE_ENV before loading credentials', async () => {
+  await exec(process.execPath, [
+    '--import', 'tsx', '--input-type=module', '-e',
+    "import assert from 'node:assert/strict'; import { createIntegrationContext } from './tests/support/integration.ts'; await assert.rejects(createIntegrationContext('queue'), /NODE_ENV=test/);",
+  ], {
+    env: {
+      PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
+      NODE_ENV: 'production', RUN_INTEGRATION_TESTS: 'true', TEST_ISOLATED: 'true',
+      PGHOST: 'db-test', REDIS_HOST: 'redis-test', PGDATABASE: 'monitoring_test',
+    },
+    timeout: 5_000,
+  });
 });

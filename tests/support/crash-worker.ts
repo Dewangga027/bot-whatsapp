@@ -3,7 +3,8 @@ import { loadConfig } from '../../src/config.js';
 import { startWorker } from '../../src/worker.js';
 
 const [phase, databaseName, redisDb] = process.argv.slice(2);
-if (process.env.TEST_ISOLATED !== 'true' || process.env.RUN_INTEGRATION_TESTS !== 'true'
+if (process.env.NODE_ENV !== 'test'
+  || process.env.TEST_ISOLATED !== 'true' || process.env.RUN_INTEGRATION_TESTS !== 'true'
   || process.env.PGHOST !== 'db-test' || process.env.REDIS_HOST !== 'redis-test'
   || !databaseName || !/^monitoring_test_[a-f0-9]{32}$/.test(databaseName)
   || redisDb !== '1' || (phase !== 'before-commit' && phase !== 'after-commit')) {
