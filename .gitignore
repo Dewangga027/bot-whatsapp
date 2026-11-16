@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+secrets/
+sessions/
+.wwebjs_auth/
+.wwebjs_cache/
+.superpowers/
