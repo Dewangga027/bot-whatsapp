@@ -1,9 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+require_native_storage() {
+  local mount_info filesystem source extra
+  mount_info=$(findmnt --kernel --noheadings --raw --first-only --target "$1" --output FSTYPE,SOURCE) || {
+    printf '%s\n' 'Sumber filesystem tidak dapat diperiksa.' >&2
+    exit 1
+  }
+  [[ $mount_info != *$'\n'* ]] || exit 1
+  read -r filesystem source extra <<< "$mount_info"
+  [[ -n $source && -z $extra ]] || exit 1
+  printf 'Filesystem penyimpanan: type=%s, source=%s\n' "$filesystem" "$source"
+  case $filesystem in
+    ext2|ext3|ext4|xfs|btrfs|f2fs|zfs) ;;
+    *) printf '%s\n' 'DrvFS/Windows/shared mount ditolak meskipun mode0700 terlihat. Pilih output pada filesystem Linux native, misalnya $HOME.' >&2; exit 1 ;;
+  esac
+}
+
 usage() {
   printf '%s\n' 'Pemakaian: bash scripts/restore-test.sh restore --backup /media/backup/SNAPSHOT --project monitoring-restore-test-NAMA --output /home/operator/restore-BARU --confirm-test-only' \
     'Hanya backup buatan sendiri yang dipercaya. Memerlukan image lokal hasil build/pull pengguna.' \
+    'Memerlukan findmnt; output hanya filesystem Linux native, bukan DrvFS/Windows/shared mount dengan metadata POSIX.' \
     'Membuat volume baru, jaringan internal baru, dan kredensial fixture uji; tidak menyalakan worker/gateway/API.' \
     'Tidak menghapus resource pada kegagalan. Tidak pernah menimpa volume existing atau menjalankan down -v.'
 }
@@ -30,7 +47,13 @@ parent=$(cd -- "$(dirname -- "$output")" && pwd -P)
 output="$parent/$(basename -- "$output")"
 case "$output/" in "$root/"*|"$backup/"*) printf '%s\n' 'Output tidak boleh di repo atau direktori backup.' >&2; exit 1 ;; esac
 [[ ! -e $output && ! -L $output ]] || { printf '%s\n' 'Output harus belum ada.' >&2; exit 1; }
-[[ $root != *\'* && $output != *\'* && $root != *$'\n'* && $output != *$'\n'* ]] || exit 1
+if [[ $root == *\'* || $output == *\'* || $root == *$'\n'* || $output == *$'\n'* ||
+      $root == *'$'* || $output == *'$'* ]]; then
+  printf '%s\n' 'Path repo/output dengan apostrof, newline, atau dollar tidak didukung oleh manifest Compose restore.' >&2
+  exit 1
+fi
+command -v findmnt >/dev/null
+require_native_storage "$parent"
 [[ -f $backup/COMPLETE && $(cat "$backup/COMPLETE") == monitoring-backup-v1 ]] || { printf '%s\n' 'Backup belum lengkap.' >&2; exit 1; }
 [[ -f $backup/postgres.dump && -f $backup/redis-data.tar && -f $backup/SHA256SUMS ]] || exit 1
 (cd -- "$backup" && sha256sum --check --status SHA256SUMS) || { printf '%s\n' 'Checksum backup tidak cocok.' >&2; exit 1; }
@@ -58,6 +81,7 @@ if docker network inspect "$network" >/dev/null 2>&1 || [[ -n $(docker ps -aq --
 fi
 umask 077
 mkdir -- "$output"
+require_native_storage "$output"
 [[ $(stat -c '%a' "$output") == 700 ]] || { printf '%s\n' 'Output memerlukan filesystem dengan izin POSIX 0700.' >&2; exit 1; }
 tar -tf "$backup/redis-data.tar" > "$output/archive-paths"
 while IFS= read -r entry; do

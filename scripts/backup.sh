@@ -1,9 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+require_native_storage() {
+  local mount_info filesystem source extra
+  mount_info=$(findmnt --kernel --noheadings --raw --first-only --target "$1" --output FSTYPE,SOURCE) || {
+    printf '%s\n' 'Sumber filesystem tidak dapat diperiksa.' >&2
+    exit 1
+  }
+  [[ $mount_info != *$'\n'* ]] || exit 1
+  read -r filesystem source extra <<< "$mount_info"
+  [[ -n $source && -z $extra ]] || exit 1
+  printf 'Filesystem penyimpanan: type=%s, source=%s\n' "$filesystem" "$source"
+  case $filesystem in
+    ext2|ext3|ext4|xfs|btrfs|f2fs|zfs) ;;
+    *) printf '%s\n' 'DrvFS/Windows/shared mount ditolak meskipun mode0700 terlihat. Pilih output pada filesystem Linux native, misalnya $HOME.' >&2; exit 1 ;;
+  esac
+}
+
 usage() {
   printf '%s\n' 'Pemakaian: bash scripts/backup.sh create --project monitoring --output /media/backup/monitoring-BARU' \
     'Output harus direktori baru di luar repo pada media terlindungi. Jalankan dari Linux/WSL dengan akses Docker.' \
+    'Memerlukan findmnt; DrvFS/Windows/shared mount ditolak termasuk metadata POSIX. Gunakan media Linux native atau $HOME Linux.' \
     'Hentikan operasi admin manual; helper menghentikan gateway/worker/api/pgadmin, dump SQL, lalu stop Redis dan arsip seluruh /data.' \
     'Hanya service yang sebelumnya berjalan dinyalakan kembali. Backup bukan snapshot atomik lintas store.'
 }
@@ -25,6 +42,8 @@ parent=$(cd -- "$(dirname -- "$output")" && pwd -P)
 output="$parent/$(basename -- "$output")"
 case "$output/" in "$root/"*) printf '%s\n' 'Backup di dalam repo ditolak.' >&2; exit 1 ;; esac
 [[ ! -e $output && ! -L $output ]] || { printf '%s\n' 'Output harus belum ada.' >&2; exit 1; }
+command -v findmnt >/dev/null
+require_native_storage "$parent"
 command -v docker >/dev/null
 command -v sha256sum >/dev/null
 command -v stat >/dev/null
@@ -54,6 +73,7 @@ redis_id=$("${compose[@]}" ps -q redis)
 redis_image=$(docker inspect --format '{{.Config.Image}}' "$redis_id")
 umask 077
 mkdir -- "$output"
+require_native_storage "$output"
 [[ $(stat -c '%a' "$output") == 700 ]] || { printf '%s\n' 'Output memerlukan filesystem dengan izin POSIX 0700.' >&2; exit 1; }
 restart_writers=false
 restart_redis=false

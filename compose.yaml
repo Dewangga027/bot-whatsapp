@@ -169,7 +169,7 @@ services:
     profiles: [ops]
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-operator@example.invalid}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-operator@example.com}
       PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin-password
       PGADMIN_DISABLE_POSTFIX: 'true'
     secrets: [pgadmin-password]
