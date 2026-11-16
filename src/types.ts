@@ -17,7 +17,18 @@ export type ParsedChecklist = {
   notes: string;
 };
 
-export type ValidationError = { field: string; code: string; message: string };
+export type ValidationError = {
+  field: string;
+  code:
+    | 'INVALID_HEADER'
+    | 'MALFORMED_LINE'
+    | 'UNKNOWN_FIELD'
+    | 'DUPLICATE_FIELD'
+    | 'MISSING_FIELD'
+    | 'EMPTY_FIELD'
+    | 'INVALID_DECIMAL';
+  message: string;
+};
 
 export type ParseResult =
   | { ok: true; value: ParsedChecklist }
