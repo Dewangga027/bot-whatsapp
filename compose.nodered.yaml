@@ -1,0 +1,10 @@
+services:
+  api:
+    networks:
+      monitoring_shared:
+        aliases: [monitoring-api]
+
+networks:
+  monitoring_shared:
+    external: true
+    name: monitoring_shared

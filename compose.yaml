@@ -1,0 +1,339 @@
+name: monitoring
+
+x-app: &app
+  image: monitoring-app
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: runtime
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 60s
+
+x-redis-image: &redis-image redis:8.2.11-bookworm@sha256:b0b01167ff47bc3868e56a967895a26be4230891a1f42a78ab61cdd227accc8d
+x-postgres-image: &postgres-image postgres:18.7-bookworm@sha256:ece55f7868da684e400f82f1030a050718adbdd65c23aa500c486f6e2950dc0f
+
+services:
+  redis:
+    image: *redis-image
+    restart: unless-stopped
+    entrypoint: [sh, /opt/monitoring/start.sh]
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/redis-password
+    secrets: [redis-password]
+    volumes:
+      - redis_data:/data
+      - ./redis:/opt/monitoring:ro
+    networks: [redis_private]
+    mem_limit: 1g
+    stop_grace_period: 60s
+    healthcheck:
+      test: [CMD, sh, /opt/monitoring/healthcheck.sh]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: *postgres-image
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: monitoring
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-admin-password
+    secrets: [postgres-admin-password]
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks: [db_private]
+    stop_grace_period: 60s
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d monitoring']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    image: monitoring-gateway
+    build:
+      context: .
+      dockerfile: gateway.Dockerfile
+    platform: linux/amd64
+    profiles: [whatsapp]
+    init: true
+    restart: unless-stopped
+    command: [node, dist/gateway.js]
+    cap_add: [SYS_ADMIN]
+    shm_size: 512m
+    stop_grace_period: 60s
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      REDIS_PASSWORD_FILE: /run/secrets/redis-password
+      SESSION_KEY: ${SESSION_KEY:-monitoring}
+      PAIRING_MODE: ${PAIRING_MODE:-false}
+      ALLOWED_GROUP_IDS: ${ALLOWED_GROUP_IDS:-[]}
+    secrets: [redis-password]
+    volumes:
+      - whatsapp_auth:/data/wwebjs-auth
+    networks: [redis_private, whatsapp_egress]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    <<: *app
+    command: [node, dist/worker.js]
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      REDIS_PASSWORD_FILE: /run/secrets/redis-password
+      PGHOST: db
+      PGPORT: '5432'
+      PGDATABASE: monitoring
+      PGUSER: monitor_worker
+      PGPASSWORD_FILE: /run/secrets/postgres-worker-password
+    secrets: [redis-password, postgres-worker-password]
+    networks: [redis_private, db_private]
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    command: [node, dist/api.js]
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      REDIS_PASSWORD_FILE: /run/secrets/redis-password
+      PGHOST: db
+      PGPORT: '5432'
+      PGDATABASE: monitoring
+      PGUSER: monitor_reader
+      PGPASSWORD_FILE: /run/secrets/postgres-reader-password
+      API_READ_TOKEN_FILE: /run/secrets/api-read-token
+      OPS_USER: ${OPS_USER:-operator}
+      OPS_PASSWORD_FILE: /run/secrets/ops-password
+    secrets: [redis-password, postgres-reader-password, api-read-token, ops-password]
+    ports: ['127.0.0.1:3000:3000']
+    networks:
+      redis_private: {}
+      db_private: {}
+      dashboard:
+        aliases: [monitoring-api]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  migrate:
+    <<: *app
+    profiles: [ops]
+    restart: 'no'
+    command: [node, dist/migrate.js]
+    environment:
+      PGHOST: db
+      PGPORT: '5432'
+      PGDATABASE: monitoring
+      PGUSER: postgres
+      PGPASSWORD_FILE: /run/secrets/postgres-admin-password
+      POSTGRES_WORKER_PASSWORD_FILE: /run/secrets/postgres-worker-password
+      POSTGRES_READER_PASSWORD_FILE: /run/secrets/postgres-reader-password
+    secrets: [postgres-admin-password, postgres-worker-password, postgres-reader-password]
+    networks: [db_private]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ops:
+    <<: *app
+    profiles: [ops]
+    restart: 'no'
+    command: [node, dist/ops.js, --help]
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      REDIS_PASSWORD_FILE: /run/secrets/redis-password
+    secrets: [redis-password]
+    networks: [redis_private]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  pgadmin:
+    image: dpage/pgadmin4:9.19.0@sha256:3591b3d02910dcd817dec6fcaa681c278ba6966945283dd0ea0042731c330c83
+    profiles: [ops]
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-operator@example.invalid}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin-password
+      PGADMIN_DISABLE_POSTFIX: 'true'
+    secrets: [pgadmin-password]
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports: ['127.0.0.1:5050:80']
+    networks: [db_private]
+
+  redis-test:
+    image: *redis-image
+    profiles: [test]
+    restart: 'no'
+    entrypoint: [sh, /opt/monitoring/start.sh]
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/redis-password
+    secrets:
+      - source: redis-password-test
+        target: redis-password
+    volumes:
+      - ./redis:/opt/monitoring:ro
+    tmpfs: ['/data:size=512m,mode=1777']
+    networks: [test_private]
+    mem_limit: 1g
+    healthcheck:
+      test: [CMD, sh, /opt/monitoring/healthcheck.sh]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  db-test:
+    image: *postgres-image
+    profiles: [test]
+    restart: 'no'
+    environment:
+      POSTGRES_DB: monitoring_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-admin-password
+    secrets:
+      - source: postgres-admin-password-test
+        target: postgres-admin-password
+    tmpfs: ['/var/lib/postgresql:size=1g,mode=1777']
+    networks: [test_private]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d monitoring_test']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  tests:
+    image: monitoring-tests
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: tests
+    profiles: [test]
+    init: true
+    restart: 'no'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:size=256m,mode=1777']
+    environment:
+      NODE_ENV: test
+      TEST_ISOLATED: 'true'
+      RUN_INTEGRATION_TESTS: 'true'
+      REDIS_HOST: redis-test
+      REDIS_PORT: '6379'
+      REDIS_PASSWORD_FILE: /run/secrets/redis-password
+      PGHOST: db-test
+      PGPORT: '5432'
+      PGDATABASE: monitoring_test
+      PGUSER: postgres
+      PGPASSWORD_FILE: /run/secrets/postgres-admin-password
+      POSTGRES_WORKER_PASSWORD_FILE: /run/secrets/postgres-worker-password
+      POSTGRES_READER_PASSWORD_FILE: /run/secrets/postgres-reader-password
+      API_READ_TOKEN_FILE: /run/secrets/api-read-token
+      OPS_USER: test-operator
+      OPS_PASSWORD_FILE: /run/secrets/ops-password
+    secrets:
+      - source: redis-password-test
+        target: redis-password
+      - source: postgres-admin-password-test
+        target: postgres-admin-password
+      - source: postgres-worker-password-test
+        target: postgres-worker-password
+      - source: postgres-reader-password-test
+        target: postgres-reader-password
+      - source: api-read-token-test
+        target: api-read-token
+      - source: ops-password-test
+        target: ops-password
+    networks: [test_private]
+    depends_on:
+      redis-test:
+        condition: service_healthy
+      db-test:
+        condition: service_healthy
+
+  nodered-smoke:
+    image: monitoring-nodered-smoke
+    build:
+      context: .
+      dockerfile: nodered/smoke.Dockerfile
+    profiles: [test-ui]
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      MONITORING_API_BASE_URL: http://monitoring-api:3000
+      API_READ_TOKEN_FILE: /run/secrets/api-read-token
+      MONITORING_VIEW: final
+      MONITORING_QUEUE_STATE: waiting
+    secrets: [api-read-token]
+    volumes:
+      - nodered_smoke_data:/data
+    tmpfs: ['/tmp:size=64m,mode=1777']
+    ports: ['127.0.0.1:1881:1880']
+    networks: [dashboard]
+    depends_on: [api]
+
+networks:
+  redis_private:
+    internal: true
+  db_private:
+    internal: true
+  whatsapp_egress: {}
+  dashboard:
+    internal: true
+  test_private:
+    internal: true
+
+volumes:
+  redis_data: {}
+  postgres_data: {}
+  whatsapp_auth: {}
+  pgadmin_data: {}
+  nodered_smoke_data: {}
+
+secrets:
+  redis-password:
+    file: ${SECRETS_DIR:-./secrets}/redis-password
+  postgres-admin-password:
+    file: ${SECRETS_DIR:-./secrets}/postgres-admin-password
+  postgres-worker-password:
+    file: ${SECRETS_DIR:-./secrets}/postgres-worker-password
+  postgres-reader-password:
+    file: ${SECRETS_DIR:-./secrets}/postgres-reader-password
+  api-read-token:
+    file: ${SECRETS_DIR:-./secrets}/api-read-token
+  ops-password:
+    file: ${SECRETS_DIR:-./secrets}/ops-password
+  pgadmin-password:
+    file: ${SECRETS_DIR:-./secrets}/pgadmin-password
+  redis-password-test:
+    file: ./tests/fixtures/redis-password-test
+  postgres-admin-password-test:
+    file: ./tests/fixtures/postgres-admin-password-test
+  postgres-worker-password-test:
+    file: ./tests/fixtures/postgres-worker-password-test
+  postgres-reader-password-test:
+    file: ./tests/fixtures/postgres-reader-password-test
+  api-read-token-test:
+    file: ./tests/fixtures/api-read-token-test
+  ops-password-test:
+    file: ./tests/fixtures/ops-password-test
