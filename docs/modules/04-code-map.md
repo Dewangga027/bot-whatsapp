@@ -14,6 +14,7 @@ Peta ini menjelaskan tempat mengubah aturan dan hubungan antarfile, bukan salina
 | `src/database.ts` | `createDatabase`, final immutable, SELECT/INSERT dan paging; default lazy helpers | SQL migration, worker, API, integration fixture |
 | `src/migrate.ts` | `runMigrations`, role/grant, versi SQL, transaksi/advisory lock | `db/migrations/`, image yang membawa SQL, tes privilege |
 | `src/gateway.ts` | `toIncomingMessage`, `startGateway`, WhatsApp lifecycle dan pairing | Allowlist/config, gateway Dockerfile, tes adapter, uji host nyata |
+| `src/whatsapp-web-interface-controller.d.ts` | Deklarasi controller yang belum disertakan whatsapp-web.js1.34.8; `@types/node-fetch`2.6.13 melengkapi tipe node-fetch2.7.0 | Saat pin WhatsApp berubah, cocokkan ulang constructor/metode dengan `src/util/InterfaceController.js` upstream dan hapus deklarasi lokal bila upstream sudah menyediakannya; tetap periksa library dengan strict |
 | `src/api.ts` | `createApi`, auth/query/projection, health, board, listen/shutdown | Header dashboard, adapter Node-RED, tes API |
 | `src/ops.ts` | `retryFailedJob`; CLI `retry <job-id>` dan pemeriksaan native failed | Tes retry/reconciliation, prosedur operator |
 
