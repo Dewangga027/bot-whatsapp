@@ -1,0 +1,17 @@
+# Inspect the existing development gateway queue without moving its jobs or session.
+# docker compose -f compose.yaml -f compose.gateway-development.yaml up -d --no-deps api
+# The gateway container and wa-gateway-test network must already exist.
+services:
+  api:
+    environment:
+      REDIS_HOST: wa-gateway-test-redis
+      REDIS_PASSWORD_FILE: /run/secrets/redis-password-test
+    secrets:
+      - redis-password-test
+    networks:
+      gateway_development: {}
+
+networks:
+  gateway_development:
+    external: true
+    name: wa-gateway-test
