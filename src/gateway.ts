@@ -6,7 +6,7 @@ import type { IncomingMessage } from './types.js';
 
 type GatewayMessage = Pick<
   Message,
-  'fromMe' | 'hasMedia' | 'from' | 'id' | 'author' | 'timestamp' | 'body'
+  'fromMe' | 'hasMedia' | 'from' | 'to' | 'id' | 'author' | 'timestamp' | 'body'
 > & { type: string };
 
 const SAFE_REASONS: Record<string, true> = {
@@ -35,24 +35,32 @@ function sanitizeReason(reason: string): string {
   return 'UNKNOWN';
 }
 
+function allowedChatId(message: GatewayMessage, allowedGroupIds: ReadonlySet<string>): string | null {
+  const chatId = message.fromMe || message.id.fromMe ? message.to : message.from;
+  return !message.hasMedia && message.type === 'chat' && chatId.endsWith('@g.us') && allowedGroupIds.has(chatId)
+    ? chatId : null;
+}
+
+export function shouldReplyToPing(message: GatewayMessage, allowedGroupIds: ReadonlySet<string>): boolean {
+  return (message.fromMe || message.id.fromMe) && message.body === '!ping'
+    && allowedChatId(message, allowedGroupIds) !== null;
+}
+
 export function toIncomingMessage(
   message: GatewayMessage,
   sessionKey: string,
   allowedGroupIds: ReadonlySet<string>,
   receivedAt: string,
 ): IncomingMessage | null {
-  if (
-    message.fromMe || message.id.fromMe || message.hasMedia || message.type !== 'chat' ||
-    !message.from.endsWith('@g.us') || !allowedGroupIds.has(message.from) ||
-    !isChecklistMessage(message.body)
-  ) {
+  const chatId = allowedChatId(message, allowedGroupIds);
+  if (chatId === null || !isChecklistMessage(message.body)) {
     return null;
   }
   return {
     session_key: sessionKey,
     message_id: message.id._serialized,
     source_timestamp: message.timestamp,
-    chat_id: message.from,
+    chat_id: chatId,
     sender_id: message.author ?? null,
     received_at: receivedAt,
     raw_body: message.body,
@@ -82,6 +90,7 @@ export async function startGateway(
   ]);
   const browserAbort = new AbortController();
   const client = new whatsapp.Client({
+    authTimeoutMs: 120_000,
     authStrategy: new whatsapp.LocalAuth({ clientId: 'monitoring', dataPath: '/data/wwebjs-auth' }),
     puppeteer: {
       executablePath: puppeteer.executablePath(),
@@ -118,11 +127,20 @@ export async function startGateway(
     if (stopping || queue === undefined) {
       return;
     }
+    if (shouldReplyToPing(message, allowedGroupIds)) {
+      const pending = message.reply('pong')
+        .then(() => { console.log('PONG_SENT'); })
+        .catch(() => { console.error('PONG_FAILED'); })
+        .finally(() => { inFlight.delete(pending); });
+      inFlight.add(pending);
+      return;
+    }
     const incoming = toIncomingMessage(message, sessionKey, allowedGroupIds, new Date().toISOString());
     if (incoming === null) {
       return;
     }
     const pending = queueModule.enqueueMessage(incoming, queue)
+      .then(jobId => { console.log(`STAGED: ${jobId}`); })
       .catch(function notStaged() {
         console.error('NOT_STAGED: pesan tidak tersimpan di Redis; tidak ada retry otomatis.');
       })
@@ -193,7 +211,7 @@ export async function startGateway(
     }
   });
   if (!settings.pairingMode) {
-    client.on('message', onMessage);
+    client.on('message_create', onMessage);
   }
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
@@ -208,7 +226,7 @@ export async function startGateway(
   try {
     await stopped.promise;
   } finally {
-    client.removeListener('message', onMessage);
+    client.removeListener('message_create', onMessage);
     await Promise.allSettled(inFlight);
     try {
       if (!client.pupBrowser) {

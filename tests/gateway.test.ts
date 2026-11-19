@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { toIncomingMessage } from '../src/gateway.js';
+import { shouldReplyToPing, toIncomingMessage } from '../src/gateway.js';
 
 type GatewayMessage = Parameters<typeof toIncomingMessage>[0];
 const receivedAt = '2026-11-16T08:00:01.234Z';
@@ -10,6 +10,7 @@ const message: GatewayMessage = Object.freeze({
   hasMedia: false,
   type: 'chat',
   from: '120363000000001@g.us',
+  to: 'bot@c.us',
   id: Object.freeze({
     fromMe: false,
     remote: '120363000000001@g.us',
@@ -85,4 +86,38 @@ test('admits header candidates without prematurely rejecting malformed checklist
 
 test('empty allowlist never admits a checklist', () => {
   assert.equal(toIncomingMessage(message, 'monitoring', new Set(), receivedAt), null);
+});
+
+const ownMessage: GatewayMessage = {
+  ...message, fromMe: true, from: 'bot@c.us', to: message.from,
+  id: { ...message.id, fromMe: true },
+};
+
+test('development accepts own checklist using destination group', () => {
+  const result = toIncomingMessage(ownMessage, 'trial', allowedGroupIds, receivedAt);
+  assert.ok(result);
+  assert.equal(result.chat_id, message.from);
+  assert.equal(result.message_id, ownMessage.id._serialized);
+  assert.equal(result.raw_body, message.body);
+});
+
+test('own messages cannot bypass group, media and checklist filters', () => {
+  for (const changes of [
+    { to: 'other@g.us' }, { to: 'bot@c.us' }, { hasMedia: true },
+    { type: 'image' }, { body: '!ping' }, { body: 'pong' },
+  ]) {
+    assert.equal(toIncomingMessage({ ...ownMessage, ...changes }, 'trial', allowedGroupIds, receivedAt), null);
+  }
+});
+
+test('ping replies only to own plain text in allowed groups', () => {
+  const ping = { ...ownMessage, body: '!ping' };
+  assert.equal(shouldReplyToPing(ping, allowedGroupIds), true);
+  for (const changes of [
+    { to: 'other@g.us' }, { to: 'bot@c.us' }, { hasMedia: true },
+    { type: 'image' }, { body: 'pong' }, { body: '!ping extra' },
+    { fromMe: false, id: { ...ping.id, fromMe: false } },
+  ]) {
+    assert.equal(shouldReplyToPing({ ...ping, ...changes }, allowedGroupIds), false);
+  }
 });
